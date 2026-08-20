@@ -70,7 +70,7 @@ bot.start(async (ctx) => {
     delete userState[ctx.from.id];
     const userId = ctx.from.id;
     let userSetting = await prisma.userSetting.findUnique({ where: { telegramId: userId } });
-    
+
     if (!userSetting) {
       const welcomeText = `👋 Вітаю! Обери свій поточний режим використання:`;
       const keyboard = Markup.inlineKeyboard([
@@ -89,7 +89,7 @@ bot.action(/^set_mode_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const mode = ctx.match[1];
   const userId = ctx.from.id;
-  
+
   await prisma.userSetting.upsert({
     where: { telegramId: userId },
     update: { mode },
@@ -170,9 +170,20 @@ bot.action('mod_work', async (ctx) => {
   await ctx.editMessageText('💼 *Міні-CRM (Фільтрація угод):*', { parse_mode: 'Markdown', ...keyboard });
 });
 
-bot.action('crm_all', async () => renderCrmList(ctx, {}));
-bot.action('crm_in_progress', async () => renderCrmList(ctx, { status: 'В роботі' }));
-bot.action('crm_done', async () => renderCrmList(ctx, { status: 'Виконано' }));
+bot.action('crm_all', async (ctx) => {
+  await ctx.answerCbQuery();
+  await renderCrmList(ctx, {});
+});
+
+bot.action('crm_in_progress', async (ctx) => {
+  await ctx.answerCbQuery();
+  await renderCrmList(ctx, { status: 'В роботі' });
+});
+
+bot.action('crm_done', async (ctx) => {
+  await ctx.answerCbQuery();
+  await renderCrmList(ctx, { status: 'Виконано' });
+});
 
 async function renderCrmList(ctx, filter = {}) {
   try {
@@ -360,7 +371,7 @@ bot.on('text', async (ctx) => {
   try {
     if (!state) {
       await prisma.quickNote.create({ data: { content: text } });
-      try { await ctx.deleteMessage(); } catch (e) {}
+      try { await ctx.deleteMessage(); } catch (e) { }
       return ctx.reply('🧠 Збережено в «Другий мозок»!');
     }
 
