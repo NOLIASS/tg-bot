@@ -6,40 +6,49 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const userState = {};
 
-// --- ГОЛОВНИЙ ДАШБОРД (МІНІМАЛІСТИЧНИЙ ІНТЕРФЕЙС) ---
+// --- ГОЛОВНИЙ ДАШБОРД (ПОВНИЙ НАБІР МОДУЛІВ) ---
 async function sendDashboard(ctx, isEdit = false) {
-  const nextHw = await prisma.homework.findFirst({ where: { isCompleted: false }, orderBy: { dueDate: 'asc' } });
-  const mainGoal = await prisma.goal.findFirst({ where: { isCompleted: false }, orderBy: { targetDate: 'asc' } });
-  const tripCount = await prisma.tripItem.count({ where: { isPacked: false } });
-  const activeOrders = await prisma.order.count({ where: { status: 'В роботі' } });
+  try {
+    const nextHw = await prisma.homework.findFirst({ where: { isCompleted: false }, orderBy: { dueDate: 'asc' } });
+    const mainGoal = await prisma.goal.findFirst({ where: { isCompleted: false }, orderBy: { targetDate: 'asc' } });
+    const tripCount = await prisma.tripItem.count({ where: { isPacked: false } });
+    const activeOrders = await prisma.order.count({ where: { status: 'В роботі' } });
 
-  let text = `⚡ *ПЕРСОНАЛЬНИЙ ЕКО-АСИСТЕНТ*\n\n`;
-  text += nextHw ? `📌 *ДЗ:* ${nextHw.title}\n` : `📌 *ДЗ:* Усе виконано! 🎉\n`;
-  text += mainGoal ? `🎯 *Ціль:* ${mainGoal.title} [${mainGoal.progress}%]\n` : ``;
-  text += `🧳 *Багаж у дорогу:* залишилось ${tripCount}\n`;
-  text += `💼 *Замовлень у роботі:* ${activeOrders}\n`;
+    let text = `⚡ *ПЕРСОНАЛЬНИЙ ЕКО-АСИСТЕНТ*\n\n`;
+    text += nextHw ? `📌 *ДЗ:* ${nextHw.title}\n` : `📌 *ДЗ:* Усе виконано! 🎉\n`;
+    text += mainGoal ? `🎯 *Ціль:* ${mainGoal.title} [${mainGoal.progress}%]\n` : ``;
+    text += `🧳 *Багаж у дорогу:* залишилось ${tripCount}\n`;
+    text += `💼 *Замовлень у роботі:* ${activeOrders}\n`;
 
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('📚 Навчання & ДЗ', 'mod_study'), Markup.button.callback('💼 Робота & CRM', 'mod_work')],
-    [Markup.button.callback('🧳 У дорогу', 'mod_trip'), Markup.button.callback('🧠 Другий мозок', 'mod_brain')],
-    [Markup.button.callback('💰 Фінансы & Підписки', 'mod_fin'), Markup.button.callback('⚙️ Налаштування', 'menu_settings')]
-  ]);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('📚 Навчання & ДЗ', 'mod_study'), Markup.button.callback('💼 Робота & CRM', 'mod_work')],
+      [Markup.button.callback('🧳 У дорогу', 'mod_trip'), Markup.button.callback('🧠 Другий мозок', 'mod_brain')],
+      [Markup.button.callback('💰 Фінанси & Підписки', 'mod_fin'), Markup.button.callback('⚙️ Налаштування', 'menu_settings')]
+    ]);
 
-  if (isEdit) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
+    if (isEdit) {
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    } else {
+      await ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
+    }
+  } catch (error) {
+    console.error('Помилка рендеру дашборду:', error);
+    await ctx.reply('⚠️ Сталася помилка при завантаженні дашборду.');
   }
 }
 
 bot.start(async (ctx) => {
-  delete userState[ctx.from.id];
-  await sendDashboard(ctx, false);
+  try {
+    delete userState[ctx.from.id];
+    await sendDashboard(ctx, false);
+  } catch (e) { console.error(e); }
 });
 
 bot.action('main_menu', async (ctx) => {
-  delete userState[ctx.from.id];
-  await sendDashboard(ctx, true);
+  try {
+    delete userState[ctx.from.id];
+    await sendDashboard(ctx, true);
+  } catch (e) { console.error(e); }
 });
 
 
@@ -67,7 +76,6 @@ bot.action('hw_add', async (ctx) => {
 bot.action(/^hw_done_(\d+)$/, async (ctx) => {
   await prisma.homework.update({ where: { id: parseInt(ctx.match[1]) }, data: { isCompleted: true } });
   await ctx.answerCbQuery('Виконано! 🎉');
-  ctx.chat.id && bot.telegram.sendMessage(ctx.chat.id, 'Завдання переведено у виконані.');
   await sendDashboard(ctx, true);
 });
 
@@ -89,7 +97,6 @@ bot.action(/^sched_del_(\d+)$/, async (ctx) => {
   await sendDashboard(ctx, true);
 });
 
-// Квізи / Картки пам'яті
 bot.action('st_quiz', async (ctx) => {
   const card = await prisma.flashcard.findFirst();
   if (!card) {
@@ -148,21 +155,18 @@ bot.action(/^ord_toggle_(\d+)$/, async (ctx) => {
   await sendDashboard(ctx, true);
 });
 
-// Тайм-трекер
 bot.action('work_time', async (ctx) => {
   userState[ctx.from.id] = { step: 'time_wait_project' };
   await ctx.editMessageText('⏱ Введи назву проєкту/завдання, для якого запускаєш тайм-трекер:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_work')]]));
 });
 
 bot.action('work_calc', async (ctx) => {
-  await ctx.editMessageText('🧮 Калькулятор маржі: Напиши ціну закупівлі та ціну продажу через пробіл (наприклад: `100 250`), і бот порахує прибуток.', Markup.inlineKeyboard([
-    [Markup.button.callback('« Назад', 'mod_work')]
-  ]));
   userState[ctx.from.id] = { step: 'calc_wait_numbers' };
+  await ctx.editMessageText('🧮 Калькулятор маржі: Напиши ціну закупівлі та ціну продажу через пробіл (наприклад: `100 250`):', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_work')]]));
 });
 
 
-// ================= 3. МОДУЛЬ: У ДОРОГУ (ПОЛЬЩА - УКРАЇНА) =================
+// ================= 3. МОДУЛЬ: У ДОРОГУ =================
 bot.action('mod_trip', async (ctx) => {
   const items = await prisma.tripItem.findMany();
   let buttons = items.map(i => [Markup.button.callback(`${i.isPacked ? '✅' : '🔲'} [${i.category}] ${i.title} (${i.quantity} шт.)`, `trip_tgl_${i.id}`)]);
@@ -207,7 +211,7 @@ bot.action('mod_brain', async (ctx) => {
 
 bot.action('brain_add', async (ctx) => {
   userState[ctx.from.id] = { step: 'brain_wait_note' };
-  await ctx.editMessageText('✍️ Напиши або скінь будь-яку ідею/посилання, щоб зберегти її в базу:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_brain')]]));
+  await ctx.editMessageText('✍️ Напиши або скінь ідею/посилання:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_brain')]]));
 });
 
 
@@ -226,7 +230,7 @@ bot.action('mod_fin', async (ctx) => {
 
 bot.action('fin_add', async (ctx) => {
   userState[ctx.from.id] = { step: 'fin_wait_title' };
-  await ctx.editMessageText('✍️ Введи назву підписки/платежу (наприклад, *Netflix* або *Інтернет*):', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_fin')]]));
+  await ctx.editMessageText('✍️ Введи назву підписки/платежу:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_fin')]]));
 });
 
 bot.action('menu_settings', async (ctx) => {
@@ -234,91 +238,92 @@ bot.action('menu_settings', async (ctx) => {
 });
 
 
-// ================= FSM (ПОКРОКОВЕ ЗБЕРЕЖЕННЯ ДАНИХ) =================
+// ================= FSM (ПОКРОКОВЕ ЗБЕРЕЖЕННЯ) =================
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
   const state = userState[userId];
   const text = ctx.message.text.trim();
 
-  if (!state) return sendDashboard(ctx, false);
+  try {
+    if (!state) {
+      await prisma.quickNote.create({ data: { content: text } });
+      try { await ctx.deleteMessage(); } catch (e) {}
+      return ctx.reply('🧠 Збережено в «Другий мозок»!');
+    }
 
-  // ДЗ
-  if (state.step === 'hw_wait_title') {
-    await prisma.homework.create({ data: { title: text, dueDate: new Date(Date.now() + 86400000 * 3) } });
+    if (state.step === 'hw_wait_title') {
+      await prisma.homework.create({ data: { title: text, dueDate: new Date(Date.now() + 86400000 * 3) } });
+      delete userState[userId];
+      return ctx.reply('✅ ДЗ додано!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    }
+    if (state.step === 'sched_wait_data') {
+      const p = text.split(',').map(x => x.trim());
+      await prisma.schedule.create({ data: { dayOfWeek: p[0] || 'Пн', time: p[1] || '08:30', subject: p[2] || 'Пара' } });
+      delete userState[userId];
+      return ctx.reply('✅ Пару додано!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    }
+    if (state.step === 'quiz_wait_q') {
+      state.q = text;
+      state.step = 'quiz_wait_a';
+      return ctx.reply('✅ Тепер введи відповідь на це питання:');
+    }
+    if (state.step === 'quiz_wait_a') {
+      await prisma.flashcard.create({ data: { question: state.q, answer: text } });
+      delete userState[userId];
+      return ctx.reply('✅ Картку збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    }
+    if (state.step === 'ord_wait_client') {
+      state.client = text;
+      state.step = 'ord_wait_niche';
+      return ctx.reply('✍️ Введи нішу / послугу:');
+    }
+    if (state.step === 'ord_wait_niche') {
+      state.niche = text;
+      state.step = 'ord_wait_amount';
+      return ctx.reply('💵 Введи суму в доларах:');
+    }
+    if (state.step === 'ord_wait_amount') {
+      await prisma.order.create({ data: { clientName: state.client, niche: state.niche, amount: parseFloat(text) || 0 } });
+      delete userState[userId];
+      return ctx.reply('✅ Замовлення додано до CRM!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    }
+    if (state.step === 'time_wait_project') {
+      await prisma.timeLog.create({ data: { projectName: text } });
+      delete userState[userId];
+      return ctx.reply(`⏱ Тайм-трекер для проєкту *${text}* запущено!`, Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    }
+    if (state.step === 'calc_wait_numbers') {
+      const [buy, sell] = text.split(' ').map(Number);
+      delete userState[userId];
+      if (!buy || !sell) return ctx.reply('❌ Неправильний формат. Введи два числа через пробіл.');
+      const profit = sell - buy;
+      const margin = ((profit / sell) * 100).toFixed(1);
+      return ctx.reply(`🧮 Прибуток: ${profit}$ | Маржинальність: ${margin}%`, Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    }
+    if (state.step === 'trip_wait_title') {
+      await prisma.tripItem.create({ data: { category: state.category, title: text, quantity: 1 } });
+      delete userState[userId];
+      return ctx.reply('✅ Додано в багаж!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    }
+    if (state.step === 'brain_wait_note') {
+      await prisma.quickNote.create({ data: { content: text } });
+      delete userState[userId];
+      return ctx.reply('🧠 Ідею збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    }
+    if (state.step === 'fin_wait_title') {
+      state.finTitle = text;
+      state.step = 'fin_wait_amount';
+      return ctx.reply('💵 Введи вартість платежу:');
+    }
+    if (state.step === 'fin_wait_amount') {
+      await prisma.subscription.create({ data: { title: state.finTitle, amount: parseFloat(text) || 0, payDate: new Date() } });
+      delete userState[userId];
+      return ctx.reply('✅ Підписку збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    }
+  } catch (err) {
+    console.error('Помилка FSM:', err);
     delete userState[userId];
-    return ctx.reply('✅ ДЗ додано!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
-  }
-  // Розклад
-  if (state.step === 'sched_wait_data') {
-    const p = text.split(',').map(x => x.trim());
-    await prisma.schedule.create({ data: { dayOfWeek: p[0] || 'Пн', time: p[1] || '08:30', subject: p[2] || 'Пара' } });
-    delete userState[userId];
-    return ctx.reply('✅ Пару додано!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
-  }
-  // Квізи
-  if (state.step === 'quiz_wait_q') {
-    state.q = text;
-    state.step = 'quiz_wait_a';
-    return ctx.reply('✅ Тепер введи відповідь на це питання:');
-  }
-  if (state.step === 'quiz_wait_a') {
-    await prisma.flashcard.create({ data: { question: state.q, answer: text } });
-    delete userState[userId];
-    return ctx.reply('✅ Картку збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
-  }
-  // CRM замовлення
-  if (state.step === 'ord_wait_client') {
-    state.client = text;
-    state.step = 'ord_wait_niche';
-    return ctx.reply('✍️ Введи нішу / послугу (наприклад, *Лендінг*):');
-  }
-  if (state.step === 'ord_wait_niche') {
-    state.niche = text;
-    state.step = 'ord_wait_amount';
-    return ctx.reply('💵 Введи суму в доларах (наприклад, `300`):');
-  }
-  if (state.step === 'ord_wait_amount') {
-    await prisma.order.create({ data: { clientName: state.client, niche: state.niche, amount: parseFloat(text) || 0 } });
-    delete userState[userId];
-    return ctx.reply('✅ Замовлення додано до CRM!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
-  }
-  // Тайм-трекер
-  if (state.step === 'time_wait_project') {
-    const log = await prisma.timeLog.create({ data: { projectName: text } });
-    delete userState[userId];
-    return ctx.reply(`⏱ Тайм-трекер для проєкту *${text}* за запущено! Коли завершиш, просто пам'ятай про це.`, Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
-  }
-  // Калькулятор маржі
-  if (state.step === 'calc_wait_numbers') {
-    const [buy, sell] = text.split(' ').map(Number);
-    delete userState[userId];
-    if (!buy || !sell) return ctx.reply('❌ Неправильний формат. Введи два числа через пробіл.');
-    const profit = sell - buy;
-    const margin = ((profit / sell) * 100).toFixed(1);
-    return ctx.reply(`🧮 *Результат розрахунку:*\nПрибуток: ${profit}$ \nМаржинальність: ${margin}%`, Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
-  }
-  // Багаж
-  if (state.step === 'trip_wait_title') {
-    await prisma.tripItem.create({ data: { category: state.category, title: text, quantity: 1 } });
-    delete userState[userId];
-    return ctx.reply('✅ Додано в багаж!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
-  }
-  // Другий мозок
-  if (state.step === 'brain_wait_note') {
-    await prisma.quickNote.create({ data: { content: text } });
-    delete userState[userId];
-    return ctx.reply('🧠 Ідею збережено в «Другий мозок»!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
-  }
-  // Підписки
-  if (state.step === 'fin_wait_title') {
-    state.finTitle = text;
-    state.step = 'fin_wait_amount';
-    return ctx.reply('💵 Введи вартість платежу (наприклад, `9.99`):');
-  }
-  if (state.step === 'fin_wait_amount') {
-    await prisma.subscription.create({ data: { title: state.finTitle, amount: parseFloat(text) || 0, payDate: new Date() } });
-    delete userState[userId];
-    return ctx.reply('✅ Підписку збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+    await ctx.reply('❌ Сталася помилка. Спробуй ще раз.');
   }
 });
 
@@ -328,7 +333,7 @@ module.exports = async (req, res) => {
       await bot.handleUpdate(req.body);
       return res.status(200).send('OK');
     }
-    return res.status(200).send('Super Bot is running');
+    return res.status(200).send('Bot is running');
   } catch (e) {
     console.error(e);
     return res.status(500).send('Error');
