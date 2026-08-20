@@ -312,7 +312,7 @@ bot.action(/^lug_tgl_(\d+)$/, async (ctx) => {
 bot.action('mod_skincare', async (ctx) => {
   await ctx.answerCbQuery();
   const routines = await prisma.skincareRoutine.findMany();
-  let text = '✨ *Б'юті-рутина та догляд:*\n\n';
+  let text = "✨ *Б'юті-рутина та догляд:*\n\n";
   let buttons = routines.map(r => [Markup.button.callback(`✔️ Виконати: ${r.title} (${r.frequency})`, `skin_done_${r.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати процедуру', 'skin_add'), Markup.button.callback('« Меню', 'main_menu')]);
   await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
