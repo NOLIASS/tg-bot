@@ -42,11 +42,11 @@ model Goal {
 
 // 1. Модуль поїздок ("У дорогу")
 model TripItem {
-  id        Int     @id @default(autoincrement())
-  category  String  // Техніка, Одяг, Документи
-  title     String
-  quantity  Int     @default(1)
-  isPacked  Boolean @default(false)
+  id       Int     @id @default(autoincrement())
+  category String // Техніка, Одяг, Документи
+  title    String
+  quantity Int     @default(1)
+  isPacked Boolean @default(false)
 }
 
 // 2. "Другий мозок" (Швидкі нотатки / Inbox)
@@ -58,28 +58,28 @@ model QuickNote {
 
 // 3. Міні-CRM для замовлень / фрілансу
 model Order {
-  id          Int    @id @default(autoincrement())
-  clientName  String
-  niche       String
-  amount      Float
-  status      String @default("Новий") // Новий, В роботі, Виконано
+  id         Int    @id @default(autoincrement())
+  clientName String
+  niche      String
+  amount     Float
+  status     String @default("Новий") // Новий, В роботі, Виконано
 }
 
 // 4. Тайм-трекер
 model TimeLog {
-  id          Int       @id @default(autoincrement())
-  projectName String
-  startTime   DateTime  @default(now())
-  endTime     DateTime?
+  id           Int       @id @default(autoincrement())
+  projectName  String
+  startTime    DateTime  @default(now())
+  endTime      DateTime?
   durationMins Int?
 }
 
 // 5. Фінансові підписки / платежі
 model Subscription {
-  id        Int      @id @default(autoincrement())
-  title     String
-  amount    Float
-  payDate   DateTime
+  id      Int      @id @default(autoincrement())
+  title   String
+  amount  Float
+  payDate DateTime
 }
 
 // 6. Квізи / Картки для навчання
@@ -87,4 +87,19 @@ model Flashcard {
   id       Int    @id @default(autoincrement())
   question String
   answer   String
+}
+
+model UserSetting {
+  id            Int     @id @default(autoincrement())
+  telegramId    BigInt  @unique
+  mode          String  @default("full")
+  leadsEnabled  Boolean @default(true)
+  briefsEnabled Boolean @default(true)
+}
+
+model LeadContact {
+  id          Int    @id @default(autoincrement())
+  name        String
+  contactInfo String
+  source      String
 }
