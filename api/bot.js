@@ -6,8 +6,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const userState = {};
 
-// Глобальний обробник помилок Telegraf: логуємо, але не даємо помилці
-// "впасти" необробленою (саме так виникала помилка "query is too old")
+// Глобальний обробник помилок Telegraf
 bot.catch((err, ctx) => {
   console.error(`Telegraf error for update ${ctx.update.update_id}:`, err);
 });
@@ -18,16 +17,13 @@ bot.catch((err, ctx) => {
 async function sendDashboard(ctx, isEdit = false) {
   try {
     const userId = ctx.from.id;
-
-    // Використовуємо upsert, щоб якщо налаштування вже є — гарантовано підтягнути їх 
-    // або проставити дефолтні значення, якщо вони чомусь пусті (NULL)
+    
     let userSetting = await prisma.userSetting.upsert({
       where: { telegramId: userId },
-      update: {}, // нічого не змінюємо, якщо запис є
+      update: {},
       create: { telegramId: userId, mode: 'full', notifTime: '09:00' }
     });
 
-    // Додатковий захист на випадок, якщо в базі запис є, але поля пусті
     const notifTime = userSetting.notifTime || '09:00';
     const mode = userSetting.mode || 'full';
 
@@ -75,7 +71,6 @@ async function sendDashboard(ctx, isEdit = false) {
   }
 }
 
-
 // --- СТАРТ ТА ОНБОРДИНГ ---
 bot.start(async (ctx) => {
   try {
@@ -119,8 +114,7 @@ bot.action('main_menu', async (ctx) => {
   } catch (e) { console.error(e); }
 });
 
-
-// ================= 1. НАВЧАННЯ ТА РОЗКЛАД (Гнучке управління) =================
+// ================= 1. НАВЧАННЯ ТА РОЗКЛАД =================
 bot.action('mod_study', async (ctx) => {
   await ctx.answerCbQuery();
   const keyboard = Markup.inlineKeyboard([
@@ -156,7 +150,7 @@ bot.action(/^sched_del_(\d+)$/, async (ctx) => {
 
 async function renderHomework(ctx) {
   const list = await prisma.homework.findMany({ where: { isCompleted: false } });
-  let buttons = list.map(h => [Markup.button.callback(`✔️ ${h.title} (${h.subject || 'Без предмету'})`, `hw_done_${h.id}`)]);
+  let buttons = list.map(h => [Markup.button.callback(`✔️ ${h.title} (${h.priority || 'Звичайний'})`, `hw_done_${h.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати ДЗ', 'hw_add'), Markup.button.callback('« Назад', 'mod_study')]);
   await ctx.editMessageText('📌 *Домашні завдання:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
@@ -178,8 +172,7 @@ bot.action(/^hw_done_(\d+)$/, async (ctx) => {
   await renderHomework(ctx);
 });
 
-
-// ================= 2. РОБОТА ТА ГНУЧКА CRM (Фільтри, не обов'язкові поля) =================
+// ================= 2. РОБОТА ТА CRM =================
 bot.action('mod_work', async (ctx) => {
   await ctx.answerCbQuery();
   const keyboard = Markup.inlineKeyboard([
@@ -208,7 +201,7 @@ bot.action('crm_done', async (ctx) => {
 async function renderCrmList(ctx, filter = {}) {
   try {
     const orders = await prisma.order.findMany({ where: filter });
-    let buttons = orders.map(o => [Markup.button.callback(`👤 ${o.clientName} | ${o.niche} (${o.amount} ${o.currency}) [${o.status}]`, `ord_toggle_${o.id}`)]);
+    let buttons = orders.map(o => [Markup.button.callback(`👤 ${o.clientName} | ${o.niche} (${o.amount} $) [${o.status}]`, `ord_toggle_${o.id}`)]);
     buttons.push([Markup.button.callback('➕ Додати замовлення', 'ord_add'), Markup.button.callback('« Назад', 'mod_work')]);
     if (ctx.callbackQuery) {
       await ctx.editMessageText('💼 *Список угод за фільтром:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -219,43 +212,16 @@ async function renderCrmList(ctx, filter = {}) {
 bot.action('ord_add', async (ctx) => {
   await ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'ord_wait_client' };
-  await ctx.editMessageText('✍️ Введи ПІБ клієнта або назву проєкту (або натисни «Пропустити»):', Markup.inlineKeyboard([
-    [Markup.button.callback('⏭ Пропустити', 'ord_skip_client')],
-    [Markup.button.callback('« Назад', 'mod_work')]
-  ]));
-});
-
-bot.action('ord_skip_client', async (ctx) => {
-  await ctx.answerCbQuery();
-  userState[ctx.from.id].client = 'Без імені';
-  userState[ctx.from.id].step = 'ord_wait_phone';
-  await ctx.editMessageText('📞 Введи номер телефону (необов’язково, можеш пропустити):', Markup.inlineKeyboard([
-    [Markup.button.callback('⏭ Пропустити', 'ord_skip_phone')]
-  ]));
-});
-
-bot.action('ord_skip_phone', async (ctx) => {
-  await ctx.answerCbQuery();
-  userState[ctx.from.id].phone = 'Не вказано';
-  userState[ctx.from.id].step = 'ord_wait_niche';
-  await ctx.editMessageText('🏷 Введи сферу / нішу (наприклад, Лендінг, SMM):');
+  await ctx.editMessageText('✍️ Введи ПІБ клієнта або назву проєкту:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_work')]]));
 });
 
 bot.action(/^ord_toggle_(\d+)$/, async (ctx) => {
-  // Винесено на самий початок (рядок ~236), щоб гарантовано уникнути таймауту під час запиту до бази
   await ctx.answerCbQuery().catch(() => { });
   try {
     const orderId = parseInt(ctx.match[1]);
     const order = await prisma.order.findUnique({ where: { id: orderId } });
-
     const nextStatus = order.status === 'Новий' ? 'В роботі' : order.status === 'В роботі' ? 'Виконано' : 'Новий';
-
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { status: nextStatus }
-    });
-
-    // Оновлюємо статус сповіщення та список
+    await prisma.order.update({ where: { id: orderId }, data: { status: nextStatus } });
     await ctx.answerCbQuery(`Статус: ${nextStatus}`).catch(() => { });
     await renderCrmList(ctx, {});
   } catch (e) {
@@ -263,7 +229,7 @@ bot.action(/^ord_toggle_(\d+)$/, async (ctx) => {
   }
 });
 
-// ================= 3. ІНШІ МОДУЛІ (БРИФИ, ЛІДИ, ДОГЛЯД, ТОЩО) =================
+// ================= 3. ІНШІ МОДУЛІ (ДОГЛЯД, ТОЩО) =================
 bot.action('mod_leads', async (ctx) => {
   await ctx.answerCbQuery();
   const leads = await prisma.leadContact.findMany();
@@ -321,7 +287,7 @@ bot.action('mod_fin', async (ctx) => {
   await ctx.answerCbQuery();
   const subs = await prisma.subscription.findMany();
   let text = '💰 *Фінанси та підписки:*\n\n';
-  subs.forEach(s => { text += `🔹 ${s.title} — ${s.amount} ${s.currency || '$'}\n`; });
+  subs.forEach(s => { text += `🔹 ${s.title} — ${s.amount} $\n`; });
   await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('➕ Додати платіж', 'fin_add'), Markup.button.callback('« Меню', 'main_menu')]]) });
 });
 
@@ -381,7 +347,6 @@ bot.action(/^skin_done_(\d+)$/, async (ctx) => {
   await renderSkincare(ctx);
 });
 
-
 // ================= 4. НАЛАШТУВАННЯ ЧАСУ СПОВІЩЕНЬ =================
 bot.action('menu_settings', async (ctx) => {
   await ctx.answerCbQuery();
@@ -398,9 +363,8 @@ bot.action('menu_settings', async (ctx) => {
 bot.action('set_notif_time', async (ctx) => {
   await ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'wait_notif_time' };
-  await ctx.editMessageText('✍️ Введи новий час сповіщень у форматі `HH:MM` (наприклад, `09:30` або `18:00`):', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'menu_settings')]]));
+  await ctx.editMessageText('✍️ Введи новий час сповіщень у форматі `HH:MM` (наприклад, `09:30`):', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'menu_settings')]]));
 });
-
 
 // ================= FSM (ГНУЧКЕ ЗБЕРЕЖЕННЯ) =================
 bot.on('text', async (ctx) => {
@@ -415,14 +379,12 @@ bot.on('text', async (ctx) => {
       return ctx.reply('🧠 Збережено в «Другий мозок»!');
     }
 
-    // Час сповіщень
     if (state.step === 'wait_notif_time') {
-      await prisma.userSetting.update({ where: { telegramId: userId }, data: { notifTime: text } });
+      await prisma.userSetting.update({ where: { telegramId: BigInt(userId) }, data: { notifTime: text } });
       delete userState[userId];
       return ctx.reply(`✅ Час сповіщень змінено на ${text}!`, Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
 
-    // Розклад
     if (state.step === 'sched_wait_day') {
       state.schedDay = text;
       state.step = 'sched_wait_time';
@@ -439,28 +401,27 @@ bot.on('text', async (ctx) => {
       return ctx.reply('✅ Пару успішно додано до розкладу!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
 
-    // ДЗ
     if (state.step === 'hw_wait_title') {
       state.hwTitle = text;
-      state.step = 'hw_wait_subj';
-      return ctx.reply('📚 Введи предмет (необов’язково, або пропусти):');
+      state.step = 'hw_wait_date';
+      return ctx.reply('📅 Введи дедлайн (у форматі `РРРР-ММ-ДД`, наприклад `2026-06-15`):');
     }
-    if (state.step === 'hw_wait_subj') {
-      await prisma.homework.create({ data: { title: state.hwTitle, subject: text, dueDate: new Date(Date.now() + 86400000 * 2) } });
+    if (state.step === 'hw_wait_date') {
+      await prisma.homework.create({ 
+        data: { 
+          title: state.hwTitle, 
+          dueDate: new Date(text),
+          userId: BigInt(userId) 
+        } 
+      });
       delete userState[userId];
       return ctx.reply('✅ Домашнє завдання збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
 
-    // CRM Замовлення (гнучке)
     if (state.step === 'ord_wait_client') {
       state.client = text;
-      state.step = 'ord_wait_phone';
-      return ctx.reply('📞 Введи номер телефону (необов’язково):');
-    }
-    if (state.step === 'ord_wait_phone') {
-      state.phone = text;
       state.step = 'ord_wait_niche';
-      return ctx.reply('🏷 Введи сферу / нішу (наприклад, Лендінг, SMM):');
+      return ctx.reply('🏷 Введи сферу / нішу (наприклад, Лендінг):');
     }
     if (state.step === 'ord_wait_niche') {
       state.niche = text;
@@ -468,18 +429,11 @@ bot.on('text', async (ctx) => {
       return ctx.reply('💵 Введи суму (наприклад, `250`):');
     }
     if (state.step === 'ord_wait_amount') {
-      state.amount = parseFloat(text) || 0;
-      state.step = 'ord_wait_currency';
-      return ctx.reply('💱 Обери валюту (наприклад: `$`, `UAH`, `PLN`):');
-    }
-    if (state.step === 'ord_wait_currency') {
       await prisma.order.create({
         data: {
-          clientName: state.client || 'Без імені',
-          phone: state.phone || 'Не вказано',
-          niche: state.niche || 'Інше',
-          amount: state.amount || 0,
-          currency: text || '$',
+          clientName: state.client,
+          niche: state.niche,
+          amount: parseFloat(text) || 0,
           status: 'В роботі'
         }
       });
@@ -487,7 +441,6 @@ bot.on('text', async (ctx) => {
       return ctx.reply('✅ Успішно додано до CRM!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
 
-    // Інші базові FSM
     if (state.step === 'lead_wait_name') {
       state.leadName = text;
       state.step = 'lead_wait_contact';
@@ -498,49 +451,44 @@ bot.on('text', async (ctx) => {
       delete userState[userId];
       return ctx.reply('✅ Ліда збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
+
     if (state.step === 'brain_wait_note') {
       await prisma.quickNote.create({ data: { content: text } });
       delete userState[userId];
       return ctx.reply('🧠 Ідею збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
+
     if (state.step === 'lug_wait_title') {
       await prisma.tripItem.create({ data: { title: text } });
       delete userState[userId];
       return ctx.reply('✅ Додано в багаж!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
+
     if (state.step === 'skin_wait_title') {
       state.skinTitle = text;
       state.step = 'skin_wait_freq';
-      return ctx.reply('⏳ Введи частоту (наприклад: *щодня*, *через день*):');
+      return ctx.reply('⏳ Введи частоту (наприклад: *щодня*):');
     }
     if (state.step === 'skin_wait_freq') {
       state.skinFreq = text;
       state.step = 'skin_wait_times';
-      return ctx.reply('⏰ Введи час(и) сповіщення (можна декілька через кому, наприклад: *09:00, 21:00*):', { parse_mode: 'Markdown' });
+      return ctx.reply('⏰ Введи час(и) сповіщення (наприклад: `09:00, 21:00`):');
     }
     if (state.step === 'skin_wait_times') {
-      const times = text
-        .split(/[,;\s]+/)
-        .map(t => t.trim())
-        .filter(t => /^([01]?\d|2[0-3]):[0-5]\d$/.test(t));
-
-      if (times.length === 0) {
-        return ctx.reply('⚠️ Не розпізнав жодного часу. Введи у форматі ГГ:ХХ через кому, наприклад: *09:00, 21:00*', { parse_mode: 'Markdown' });
-      }
-
       await prisma.skincareRoutine.create({
-        data: { title: state.skinTitle, frequency: state.skinFreq, notifTimes: times.join(',') }
+        data: { title: state.skinTitle, frequency: state.skinFreq, notifTimes: text, userId: BigInt(userId) }
       });
       delete userState[userId];
-      return ctx.reply(`✨ Процедуру збережено! Сповіщення: ${times.join(', ')}`, Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+      return ctx.reply('✨ Процедуру збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
+
     if (state.step === 'fin_wait_title') {
       state.finTitle = text;
       state.step = 'fin_wait_amount';
       return ctx.reply('💵 Введи суму платежу:');
     }
     if (state.step === 'fin_wait_amount') {
-      await prisma.subscription.create({ data: { title: state.finTitle, amount: parseFloat(text) || 0, currency: '$', payDate: new Date() } });
+      await prisma.subscription.create({ data: { title: state.finTitle, amount: parseFloat(text) || 0, payDate: new Date() } });
       delete userState[userId];
       return ctx.reply('✅ Платіж збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
@@ -550,50 +498,68 @@ bot.on('text', async (ctx) => {
     delete userState[userId];
     await ctx.reply('❌ Сталася помилка при збереженні.');
   }
-
-  async function checkAndSendNotifications() {
-    try {
-      const now = new Date();
-      // Перетворимо поточний час у формат "HH:MM" (враховуй часовий пояс на сервери!)
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      const currentTime = `${hours}:${minutes}`;
-
-      // Шукаємо користувачів у базі, у яких час сповіщень збігається з поточним
-      const usersToNotify = await prisma.userSetting.findMany({
-        where: { notifTime: currentTime }
-      });
-
-      for (const setting of usersToNotify) {
-        try {
-          let message = `⏰ *Час планувати день!* Настав твій час сповіщень (${setting.notifTime}).\n\n`;
-
-          if (setting.mode === 'student' || setting.mode === 'full') {
-            const nextHw = await prisma.homework.findFirst({
-              where: { isCompleted: false }
-            });
-            if (nextHw) {
-              message += `📌 Найближче ДЗ: *${nextHw.title}*\n`;
-            }
-          }
-
-          // Надсилаємо повідомлення напряму в Telegram
-          await bot.telegram.sendMessage(setting.telegramId, message, { parse_mode: 'Markdown' });
-        } catch (err) {
-          console.error(`Помилка надсилання для ${setting.telegramId}:`, err);
-        }
-      }
-      return true;
-    } catch (err) {
-      console.error('Помилка cron-функції:', err);
-      return false;
-    }
-  }
 });
 
+// ================= ГЛОБАЛЬНА ФУНКЦІЯ ПЕРЕВІРКИ СПОВІЩЕНЬ =================
+async function checkAndSendNotifications() {
+  try {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const currentTime = `${hours}:${minutes}`;
+
+    // 1. Перевірка догляду (у точний час, що вказаний у налаштуваннях процедури)
+    const routines = await prisma.skincareRoutine.findMany();
+    for (const routine of routines) {
+      if (routine.notifTimes && routine.notifTimes.includes(currentTime)) {
+        if (routine.userId) {
+          await bot.telegram.sendMessage(
+            Number(routine.userId),
+            `✨ *Час догляду:* Настав час для процедури — *${routine.title}*!`,
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+        }
+      }
+    }
+
+    // 2. Перевірка ДЗ на завтра (надсилається щодня о 09:00 ранку)
+    if (currentTime === '09:00') {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+      const homeworkDueTomorrow = await prisma.homework.findMany({
+        where: {
+          isCompleted: false,
+          dueDate: {
+            gte: new Date(tomorrowStr + 'T00:00:00Z'),
+            lte: new Date(tomorrowStr + 'T23:59:59Z')
+          }
+        }
+      });
+
+      for (const hw of homeworkDueTomorrow) {
+        if (hw.userId) {
+          await bot.telegram.sendMessage(
+            Number(hw.userId),
+            `⚠️ *Нагадування:* Завтра дедлайн за домашнім завданням: *${hw.title}*!`,
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+        }
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Помилка cron-функції:', err);
+    return false;
+  }
+}
+
+// ================= ЕНДПОЇНТ ДЛЯ ВЕБХУКА ТА CRON =================
 module.exports = async (req, res) => {
   try {
-    // Якщо запит прийшов від зовнішнього планувальника
+    // Виклик планувальником (cron-job.org)
     if (req.url?.includes('/api/cron') || req.query?.action === 'cron') {
       await checkAndSendNotifications();
       return res.status(200).send('Cron executed successfully');
