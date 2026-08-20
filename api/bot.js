@@ -332,7 +332,7 @@ bot.action('fin_add', async (ctx) => {
 });
 
 async function renderLuggage(ctx) {
-  const items = await prisma.luggageItem.findMany();
+  const items = await prisma.tripItem.findMany();
   let buttons = items.map(i => [Markup.button.callback(`${i.isPacked ? '✅' : '🔲'} ${i.title}`, `lug_tgl_${i.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати річ', 'lug_add'), Markup.button.callback('« Меню', 'main_menu')]);
   await ctx.editMessageText('🧳 *Багаж у дорогу:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -351,8 +351,8 @@ bot.action('lug_add', async (ctx) => {
 
 bot.action(/^lug_tgl_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const item = await prisma.luggageItem.findUnique({ where: { id: parseInt(ctx.match[1]) } });
-  await prisma.luggageItem.update({ where: { id: item.id }, data: { isPacked: !item.isPacked } });
+  const item = await prisma.tripItem.findUnique({ where: { id: parseInt(ctx.match[1]) } });
+  await prisma.tripItem.update({ where: { id: item.id }, data: { isPacked: !item.isPacked } });
   await renderLuggage(ctx);
 });
 
@@ -504,7 +504,7 @@ bot.on('text', async (ctx) => {
       return ctx.reply('🧠 Ідею збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
     if (state.step === 'lug_wait_title') {
-      await prisma.luggageItem.create({ data: { title: text } });
+      await prisma.tripItem.create({ data: { title: text } });
       delete userState[userId];
       return ctx.reply('✅ Додано в багаж!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }

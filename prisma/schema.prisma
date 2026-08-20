@@ -43,7 +43,7 @@ model Goal {
 // 1. Модуль поїздок ("У дорогу")
 model TripItem {
   id       Int     @id @default(autoincrement())
-  category String // Техніка, Одяг, Документи
+  category String  @default("Інше") // Техніка, Одяг, Документи
   title    String
   quantity Int     @default(1)
   isPacked Boolean @default(false)
@@ -93,8 +93,16 @@ model UserSetting {
   id            Int     @id @default(autoincrement())
   telegramId    BigInt  @unique
   mode          String  @default("full")
+  notifTime     String  @default("09:00")
   leadsEnabled  Boolean @default(true)
   briefsEnabled Boolean @default(true)
+}
+
+model SkincareRoutine {
+  id        Int       @id @default(autoincrement())
+  title     String
+  frequency String
+  lastDone  DateTime?
 }
 
 model LeadContact {
