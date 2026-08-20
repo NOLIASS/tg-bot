@@ -21,12 +21,12 @@ model Schedule {
   time      String
   subject   String
   room      String?
+  zoomLink  String?
 }
 
 model Homework {
   id          Int      @id @default(autoincrement())
   title       String
-  description String?
   dueDate     DateTime
   priority    String   @default("Звичайний")
   isCompleted Boolean  @default(false)
@@ -40,18 +40,51 @@ model Goal {
   isCompleted Boolean  @default(false)
 }
 
-model SkincareItem {
-  id           Int    @id @default(autoincrement())
-  name         String
-  scheduleDays String
-  timeSlot     String
+// 1. Модуль поїздок ("У дорогу")
+model TripItem {
+  id        Int     @id @default(autoincrement())
+  category  String  // Техніка, Одяг, Документи
+  title     String
+  quantity  Int     @default(1)
+  isPacked  Boolean @default(false)
 }
 
-// Нова модель для функції "У дорогу" (Багаж / Чек-лист поїздки)
-model TripItem {
-  id          Int     @id @default(autoincrement())
-  category    String  // "Техніка", "Одяг", "Документи", "Гроші"
-  title       String  // Назва речі
-  quantity    Int     @default(1) // Кількість
-  isPacked    Boolean @default(false) // Чи складено
+// 2. "Другий мозок" (Швидкі нотатки / Inbox)
+model QuickNote {
+  id        Int      @id @default(autoincrement())
+  content   String
+  createdAt DateTime @default(now())
+}
+
+// 3. Міні-CRM для замовлень / фрілансу
+model Order {
+  id          Int    @id @default(autoincrement())
+  clientName  String
+  niche       String
+  amount      Float
+  status      String @default("Новий") // Новий, В роботі, Виконано
+}
+
+// 4. Тайм-трекер
+model TimeLog {
+  id          Int       @id @default(autoincrement())
+  projectName String
+  startTime   DateTime  @default(now())
+  endTime     DateTime?
+  durationMins Int?
+}
+
+// 5. Фінансові підписки / платежі
+model Subscription {
+  id        Int      @id @default(autoincrement())
+  title     String
+  amount    Float
+  payDate   DateTime
+}
+
+// 6. Квізи / Картки для навчання
+model Flashcard {
+  id       Int    @id @default(autoincrement())
+  question String
+  answer   String
 }
