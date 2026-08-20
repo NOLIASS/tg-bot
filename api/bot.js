@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // ЗАМІНИ 'https://your-domain.vercel.app' НА СВІЙ АКТУАЛЬНИЙ ДОМЕН/URL VERCEL
-const WEB_APP_URL = process.env.WEB_APP_URL || 'https://your-domain.vercel.app';
+const WEB_APP_URL = process.env.WEB_APP_URL || 'https://tg-bot-taupe-xi.vercel.app/';
 
 async function sendDashboard(ctx, isEdit = false) {
   const text = `
