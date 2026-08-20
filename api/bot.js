@@ -18,7 +18,7 @@ bot.catch((err, ctx) => {
 async function sendDashboard(ctx, isEdit = false) {
   try {
     const userId = ctx.from.id;
-    
+
     // Використовуємо upsert, щоб якщо налаштування вже є — гарантовано підтягнути їх 
     // або проставити дефолтні значення, якщо вони чомусь пусті (NULL)
     let userSetting = await prisma.userSetting.upsert({
@@ -243,20 +243,20 @@ bot.action('ord_skip_phone', async (ctx) => {
 
 bot.action(/^ord_toggle_(\d+)$/, async (ctx) => {
   // Винесено на самий початок (рядок ~236), щоб гарантовано уникнути таймауту під час запиту до бази
-  await ctx.answerCbQuery().catch(() => {});
+  await ctx.answerCbQuery().catch(() => { });
   try {
     const orderId = parseInt(ctx.match[1]);
     const order = await prisma.order.findUnique({ where: { id: orderId } });
-    
+
     const nextStatus = order.status === 'Новий' ? 'В роботі' : order.status === 'В роботі' ? 'Виконано' : 'Новий';
-    
-    await prisma.order.update({ 
-      where: { id: orderId }, 
-      data: { status: nextStatus } 
+
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { status: nextStatus }
     });
 
     // Оновлюємо статус сповіщення та список
-    await ctx.answerCbQuery(`Статус: ${nextStatus}`).catch(() => {});
+    await ctx.answerCbQuery(`Статус: ${nextStatus}`).catch(() => { });
     await renderCrmList(ctx, {});
   } catch (e) {
     console.error('Помилка toggle:', e);
@@ -550,14 +550,60 @@ bot.on('text', async (ctx) => {
     delete userState[userId];
     await ctx.reply('❌ Сталася помилка при збереженні.');
   }
+
+  async function checkAndSendNotifications() {
+    try {
+      const now = new Date();
+      // Перетворимо поточний час у формат "HH:MM" (враховуй часовий пояс на сервери!)
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const currentTime = `${hours}:${minutes}`;
+
+      // Шукаємо користувачів у базі, у яких час сповіщень збігається з поточним
+      const usersToNotify = await prisma.userSetting.findMany({
+        where: { notifTime: currentTime }
+      });
+
+      for (const setting of usersToNotify) {
+        try {
+          let message = `⏰ *Час планувати день!* Настав твій час сповіщень (${setting.notifTime}).\n\n`;
+
+          if (setting.mode === 'student' || setting.mode === 'full') {
+            const nextHw = await prisma.homework.findFirst({
+              where: { isCompleted: false }
+            });
+            if (nextHw) {
+              message += `📌 Найближче ДЗ: *${nextHw.title}*\n`;
+            }
+          }
+
+          // Надсилаємо повідомлення напряму в Telegram
+          await bot.telegram.sendMessage(setting.telegramId, message, { parse_mode: 'Markdown' });
+        } catch (err) {
+          console.error(`Помилка надсилання для ${setting.telegramId}:`, err);
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('Помилка cron-функції:', err);
+      return false;
+    }
+  }
 });
 
 module.exports = async (req, res) => {
   try {
+    // Якщо запит прийшов від зовнішнього планувальника
+    if (req.url?.includes('/api/cron') || req.query?.action === 'cron') {
+      await checkAndSendNotifications();
+      return res.status(200).send('Cron executed successfully');
+    }
+
     if (req.method === 'POST') {
       await bot.handleUpdate(req.body);
       return res.status(200).send('OK');
     }
+
     return res.status(200).send('Bot is running');
   } catch (e) {
     console.error(e);
