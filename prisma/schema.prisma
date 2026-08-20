@@ -1,0 +1,33 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Schedule {
+  id        Int    @id @default(autoincrement())
+  dayOfWeek String
+  time      String
+  subject   String
+  room      String?
+}
+
+model Homework {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?
+  dueDate     DateTime
+  isCompleted Boolean  @default(false)
+}
+
+model SkincareItem {
+  id              Int      @id @default(autoincrement())
+  name            String
+  frequencyDays   Int
+  lastUsed        DateTime @default(now())
+  targetFrequency Int
+  upgradeAfter    DateTime
+}
