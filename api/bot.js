@@ -236,7 +236,7 @@ bot.action('mod_leads', async (ctx) => {
 bot.action('lead_add', async (ctx) => {
   await ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'lead_wait_name' };
-  await ctx.editMessageText('✍️ Введи ім'я ліда:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_leads')]]));
+  await ctx.editMessageText("✍️ Введи ім'я ліда:", Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_leads')]]));
 });
 
 bot.action('mod_briefs', async (ctx) => {
