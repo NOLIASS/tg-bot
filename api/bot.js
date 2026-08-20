@@ -19,9 +19,9 @@ async function sendDashboard(ctx, isEdit = false) {
     const userId = ctx.from.id;
     
     let userSetting = await prisma.userSetting.upsert({
-      where: { telegramId: userId },
+      where: { telegramId: BigInt(userId) },
       update: {},
-      create: { telegramId: userId, mode: 'full', notifTime: '09:00' }
+      create: { telegramId: BigInt(userId), mode: 'full', notifTime: '09:00' }
     });
 
     const notifTime = userSetting.notifTime || '09:00';
@@ -33,7 +33,7 @@ async function sendDashboard(ctx, isEdit = false) {
     const keyboardButtons = [];
 
     if (mode === 'student' || mode === 'full') {
-      const nextHw = await prisma.homework.findFirst({ where: { isCompleted: false } });
+      const nextHw = await prisma.homework.findFirst({ where: { userId: BigInt(userId), isCompleted: false } });
       text += nextHw ? `📌 *ДЗ:* ${nextHw.title}\n` : `📌 *ДЗ:* Усе виконано! 🎉\n`;
       keyboardButtons.push([Markup.button.callback('📚 Навчання & Розклад', 'mod_study')]);
     }
@@ -76,7 +76,7 @@ bot.start(async (ctx) => {
   try {
     delete userState[ctx.from.id];
     const userId = ctx.from.id;
-    let userSetting = await prisma.userSetting.findUnique({ where: { telegramId: userId } });
+    let userSetting = await prisma.userSetting.findUnique({ where: { telegramId: BigInt(userId) } });
 
     if (!userSetting) {
       const welcomeText = `👋 Вітаю! Обери свій поточний режим використання:`;
@@ -98,9 +98,9 @@ bot.action(/^set_mode_(.+)$/, async (ctx) => {
   const userId = ctx.from.id;
 
   await prisma.userSetting.upsert({
-    where: { telegramId: userId },
+    where: { telegramId: BigInt(userId) },
     update: { mode },
-    create: { telegramId: userId, mode }
+    create: { telegramId: BigInt(userId), mode }
   });
 
   await sendDashboard(ctx, true);
@@ -126,7 +126,7 @@ bot.action('mod_study', async (ctx) => {
 
 async function renderSchedule(ctx) {
   const sched = await prisma.schedule.findMany();
-  let buttons = sched.map(s => [Markup.button.callback(`📖 [${s.dayOfWeek}] ${s.time} — ${s.subject}`, `sched_del_${s.id}`)]);
+  let buttons = sched.map(s => [Markup.button.callback(`📖 [${s.dayOfWeek}] ${s.time} — ${s.subject}`, `sched_item_${s.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати пару', 'sched_add'), Markup.button.callback('« Назад', 'mod_study')]);
   await ctx.editMessageText('📚 *Розклад занять:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
@@ -142,6 +142,20 @@ bot.action('sched_add', async (ctx) => {
   await ctx.editMessageText('✍️ Введи день тижня (наприклад, *Понеділок*):', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'st_sched')]]));
 });
 
+bot.action(/^sched_item_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const id = parseInt(ctx.match[1]);
+  const s = await prisma.schedule.findUnique({ where: { id } });
+  if (!s) return ctx.reply('Пару не знайдено');
+
+  const text = `📖 *Пара:* ${s.subject}\n📅 День: ${s.dayOfWeek}\n⏰ Час: ${s.time}`;
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🗑 Видалити пару', `sched_del_${id}`)],
+    [Markup.button.callback('« Назад до розкладу', 'st_sched')]
+  ]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+});
+
 bot.action(/^sched_del_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery('Пару видалено');
   await prisma.schedule.delete({ where: { id: parseInt(ctx.match[1]) } });
@@ -149,8 +163,9 @@ bot.action(/^sched_del_(\d+)$/, async (ctx) => {
 });
 
 async function renderHomework(ctx) {
-  const list = await prisma.homework.findMany({ where: { isCompleted: false } });
-  let buttons = list.map(h => [Markup.button.callback(`✔️ ${h.title} (${h.priority || 'Звичайний'})`, `hw_done_${h.id}`)]);
+  const userId = ctx.from.id;
+  const list = await prisma.homework.findMany({ where: { userId: BigInt(userId), isCompleted: false } });
+  let buttons = list.map(h => [Markup.button.callback(`✔️ ${h.title}`, `hw_item_${h.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати ДЗ', 'hw_add'), Markup.button.callback('« Назад', 'mod_study')]);
   await ctx.editMessageText('📌 *Домашні завдання:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
@@ -166,11 +181,38 @@ bot.action('hw_add', async (ctx) => {
   await ctx.editMessageText('✍️ Введи назву домашнього завдання:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'st_hw')]]));
 });
 
-bot.action(/^hw_done_(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery('Виконано! 🎉');
-  await prisma.homework.update({ where: { id: parseInt(ctx.match[1]) }, data: { isCompleted: true } });
+bot.action(/^hw_item_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const id = parseInt(ctx.match[1]);
+  const hw = await prisma.homework.findUnique({ where: { id } });
+  if (!hw) return ctx.reply('Завдання не знайдено');
+
+  const dateStr = hw.dueDate ? hw.dueDate.toISOString().split('T')[0] : 'Без дати';
+  const text = `📌 *Завдання:* ${hw.title}\n📅 Дедлайн: ${dateStr}\nСтатус: ${hw.isCompleted ? '✅ Виконано' : '⏳ В процесі'}`;
+  
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback(hw.isCompleted ? '↩️ Повернути в роботу' : '✔️ Виконати', `hw_toggle_${id}`)],
+    [Markup.button.callback('🗑 Видалити', `hw_del_${id}`)],
+    [Markup.button.callback('« Назад до ДЗ', 'st_hw')]
+  ]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action(/^hw_toggle_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Статус оновлено!');
+  const id = parseInt(ctx.match[1]);
+  const hw = await prisma.homework.findUnique({ where: { id } });
+  await prisma.homework.update({ where: { id }, data: { isCompleted: !hw.isCompleted } });
   await renderHomework(ctx);
 });
+
+bot.action(/^hw_del_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Видалено!');
+  const id = parseInt(ctx.match[1]);
+  await prisma.homework.delete({ where: { id } });
+  await renderHomework(ctx);
+});
+
 
 // ================= 2. РОБОТА ТА CRM =================
 bot.action('mod_work', async (ctx) => {
@@ -201,7 +243,7 @@ bot.action('crm_done', async (ctx) => {
 async function renderCrmList(ctx, filter = {}) {
   try {
     const orders = await prisma.order.findMany({ where: filter });
-    let buttons = orders.map(o => [Markup.button.callback(`👤 ${o.clientName} | ${o.niche} (${o.amount} $) [${o.status}]`, `ord_toggle_${o.id}`)]);
+    let buttons = orders.map(o => [Markup.button.callback(`👤 ${o.clientName} | ${o.niche} (${o.amount} $) [${o.status}]`, `ord_item_${o.id}`)]);
     buttons.push([Markup.button.callback('➕ Додати замовлення', 'ord_add'), Markup.button.callback('« Назад', 'mod_work')]);
     if (ctx.callbackQuery) {
       await ctx.editMessageText('💼 *Список угод за фільтром:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -215,37 +257,82 @@ bot.action('ord_add', async (ctx) => {
   await ctx.editMessageText('✍️ Введи ПІБ клієнта або назву проєкту:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_work')]]));
 });
 
-bot.action(/^ord_toggle_(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery().catch(() => { });
-  try {
-    const orderId = parseInt(ctx.match[1]);
-    const order = await prisma.order.findUnique({ where: { id: orderId } });
-    const nextStatus = order.status === 'Новий' ? 'В роботі' : order.status === 'В роботі' ? 'Виконано' : 'Новий';
-    await prisma.order.update({ where: { id: orderId }, data: { status: nextStatus } });
-    await ctx.answerCbQuery(`Статус: ${nextStatus}`).catch(() => { });
-    await renderCrmList(ctx, {});
-  } catch (e) {
-    console.error('Помилка toggle:', e);
-  }
+bot.action(/^ord_item_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const id = parseInt(ctx.match[1]);
+  const o = await prisma.order.findUnique({ where: { id } });
+  if (!o) return ctx.reply('Замовлення не знайдено');
+
+  const text = `💼 *Клієнт / Проєкт:* ${o.clientName}\n🏷 Ніша: ${o.niche}\n💵 Сума: ${o.amount} $\n📌 Статус: *${o.status}*`;
+  
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🔄 Змінити статус', `ord_status_${id}`), Markup.button.callback('🗑 Видалити', `ord_del_${id}`)],
+    [Markup.button.callback('« Назад до CRM', 'mod_work')]
+  ]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
 });
 
-// ================= 3. ІНШІ МОДУЛІ (ДОГЛЯД, ТОЩО) =================
+bot.action(/^ord_status_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const id = parseInt(ctx.match[1]);
+  const o = await prisma.order.findUnique({ where: { id } });
+  const nextStatus = o.status === 'Новий' ? 'В роботі' : o.status === 'В роботі' ? 'Виконано' : 'Новий';
+  await prisma.order.update({ where: { id }, data: { status: nextStatus } });
+  
+  // Оновлюємо картку замовлення
+  const updated = await prisma.order.findUnique({ where: { id } });
+  const text = `💼 *Клієнт / Проєкт:* ${updated.clientName}\n🏷 Ніша: ${updated.niche}\n💵 Сума: ${updated.amount} $\n📌 Статус: *${updated.status}*`;
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🔄 Змінити статус', `ord_status_${id}`), Markup.button.callback('🗑 Видалити', `ord_del_${id}`)],
+    [Markup.button.callback('« Назад до CRM', 'mod_work')]
+  ]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action(/^ord_del_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Замовлення видалено!');
+  const id = parseInt(ctx.match[1]);
+  await prisma.order.delete({ where: { id } });
+  await renderCrmList(ctx, {});
+});
+
+
+// ================= 3. ІНШІ МОДУЛІ (ЛІДИ, БРИФИ, МОЗОК, ФІНАНСИ, БАГАЖ, ДОГЛЯД) =================
 bot.action('mod_leads', async (ctx) => {
   await ctx.answerCbQuery();
   const leads = await prisma.leadContact.findMany();
   let text = '👤 *База лідів:*\n\n';
-  leads.forEach((l, idx) => { text += `${idx + 1}. *${l.name}* (${l.contactInfo})\n`; });
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('➕ Додати ліда', 'lead_add')],
-    [Markup.button.callback('« Головне меню', 'main_menu')]
-  ]);
-  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+  let buttons = leads.map(l => [Markup.button.callback(`👤 ${l.name} (${l.contactInfo})`, `lead_item_${l.id}`)]);
+  buttons.push([Markup.button.callback('➕ Додати ліда', 'lead_add'), Markup.button.callback('« Головне меню', 'main_menu')]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
 bot.action('lead_add', async (ctx) => {
   await ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'lead_wait_name' };
   await ctx.editMessageText("✍️ Введи ім'я ліда:", Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_leads')]]));
+});
+
+bot.action(/^lead_item_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const id = parseInt(ctx.match[1]);
+  const l = await prisma.leadContact.findUnique({ where: { id } });
+  if (!l) return ctx.reply('Ліда не знайдено');
+  const text = `👤 *Ім'я:* ${l.name}\n📞 Контакт: ${l.contactInfo}\n🌐 Джерело: ${l.source}`;
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🗑 Видалити ліда', `lead_del_${id}`)],
+    [Markup.button.callback('« Назад до лідів', 'mod_leads')]
+  ]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action(/^lead_del_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Ліда видалено');
+  await prisma.leadContact.delete({ where: { id: parseInt(ctx.match[1]) } });
+  const leads = await prisma.leadContact.findMany();
+  let buttons = leads.map(l => [Markup.button.callback(`👤 ${l.name}`, `lead_item_${l.id}`)]);
+  buttons.push([Markup.button.callback('➕ Додати ліда', 'lead_add'), Markup.button.callback('« Меню', 'main_menu')]);
+  await ctx.editMessageText('👤 *База лідів:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
 bot.action('mod_briefs', async (ctx) => {
@@ -272,9 +359,9 @@ bot.action('brief_shop', async (ctx) => {
 bot.action('mod_brain', async (ctx) => {
   await ctx.answerCbQuery();
   const notes = await prisma.quickNote.findMany({ take: 5, orderBy: { id: 'desc' } });
-  let text = '🧠 *Другий мозок:*\n\n';
-  notes.forEach((n, idx) => { text += `${idx + 1}. ${n.content}\n`; });
-  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('➕ Додати ідею', 'brain_add'), Markup.button.callback('« Меню', 'main_menu')]]) });
+  let buttons = notes.map(n => [Markup.button.callback(`🧠 ${n.content.substring(0, 30)}...`, `brain_item_${n.id}`)]);
+  buttons.push([Markup.button.callback('➕ Додати ідею', 'brain_add'), Markup.button.callback('« Меню', 'main_menu')]);
+  await ctx.editMessageText('🧠 *Другий мозок (Нотатки):*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
 bot.action('brain_add', async (ctx) => {
@@ -283,12 +370,34 @@ bot.action('brain_add', async (ctx) => {
   await ctx.editMessageText('✍️ Напиши ідею:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_brain')]]));
 });
 
+bot.action(/^brain_item_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const id = parseInt(ctx.match[1]);
+  const n = await prisma.quickNote.findUnique({ where: { id } });
+  if (!n) return ctx.reply('Нотатку не знайдено');
+  const text = `🧠 *Нотатка / Ідея:*\n\n${n.content}`;
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🗑 Видалити', `brain_del_${id}`)],
+    [Markup.button.callback('« Назад', 'mod_brain')]
+  ]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action(/^brain_del_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Видалено!');
+  await prisma.quickNote.delete({ where: { id: parseInt(ctx.match[1]) } });
+  const notes = await prisma.quickNote.findMany({ take: 5, orderBy: { id: 'desc' } });
+  let buttons = notes.map(n => [Markup.button.callback(`🧠 ${n.content.substring(0, 30)}...`, `brain_item_${n.id}`)]);
+  buttons.push([Markup.button.callback('➕ Додати ідею', 'brain_add'), Markup.button.callback('« Меню', 'main_menu')]);
+  await ctx.editMessageText('🧠 *Другий мозок (Нотатки):*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
 bot.action('mod_fin', async (ctx) => {
   await ctx.answerCbQuery();
   const subs = await prisma.subscription.findMany();
-  let text = '💰 *Фінанси та підписки:*\n\n';
-  subs.forEach(s => { text += `🔹 ${s.title} — ${s.amount} $\n`; });
-  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('➕ Додати платіж', 'fin_add'), Markup.button.callback('« Меню', 'main_menu')]]) });
+  let buttons = subs.map(s => [Markup.button.callback(`🔹 ${s.title} — ${s.amount} $`, `fin_item_${s.id}`)]);
+  buttons.push([Markup.button.callback('➕ Додати платіж', 'fin_add'), Markup.button.callback('« Меню', 'main_menu')]);
+  await ctx.editMessageText('💰 *Фінанси та підписки:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
 bot.action('fin_add', async (ctx) => {
@@ -297,9 +406,31 @@ bot.action('fin_add', async (ctx) => {
   await ctx.editMessageText('✍️ Введи назву платежу:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_fin')]]));
 });
 
+bot.action(/^fin_item_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const id = parseInt(ctx.match[1]);
+  const s = await prisma.subscription.findUnique({ where: { id } });
+  if (!s) return ctx.reply('Платіж не знайдено');
+  const text = `💰 *Платіж:* ${s.title}\n💵 Сума: ${s.amount} $`;
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🗑 Видалити платіж', `fin_del_${id}`)],
+    [Markup.button.callback('« Назад до фінансів', 'mod_fin')]
+  ]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action(/^fin_del_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Видалено!');
+  await prisma.subscription.delete({ where: { id: parseInt(ctx.match[1]) } });
+  const subs = await prisma.subscription.findMany();
+  let buttons = subs.map(s => [Markup.button.callback(`🔹 ${s.title} — ${s.amount} $`, `fin_item_${s.id}`)]);
+  buttons.push([Markup.button.callback('➕ Додати платіж', 'fin_add'), Markup.button.callback('« Меню', 'main_menu')]);
+  await ctx.editMessageText('💰 *Фінанси та підписки:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
 async function renderLuggage(ctx) {
   const items = await prisma.tripItem.findMany();
-  let buttons = items.map(i => [Markup.button.callback(`${i.isPacked ? '✅' : '🔲'} ${i.title}`, `lug_tgl_${i.id}`)]);
+  let buttons = items.map(i => [Markup.button.callback(`${i.isPacked ? '✅' : '🔲'} ${i.title}`, `lug_item_${i.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати річ', 'lug_add'), Markup.button.callback('« Меню', 'main_menu')]);
   await ctx.editMessageText('🧳 *Багаж у дорогу:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
@@ -315,17 +446,39 @@ bot.action('lug_add', async (ctx) => {
   await ctx.editMessageText('✍️ Введи назву речі:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_luggage')]]));
 });
 
-bot.action(/^lug_tgl_(\d+)$/, async (ctx) => {
+bot.action(/^lug_item_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const item = await prisma.tripItem.findUnique({ where: { id: parseInt(ctx.match[1]) } });
-  await prisma.tripItem.update({ where: { id: item.id }, data: { isPacked: !item.isPacked } });
+  const id = parseInt(ctx.match[1]);
+  const i = await prisma.tripItem.findUnique({ where: { id } });
+  if (!i) return ctx.reply('Річ не знайдено');
+  const text = `🧳 *Річ:* ${i.title}\nСтатус: ${i.isPacked ? '✅ Зібрано' : '🔲 Не зібрано'}`;
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback(i.isPacked ? '🔄 Позначити як незібране' : '✅ Зібрати', `lug_toggle_${id}`)],
+    [Markup.button.callback('🗑 Видалити', `lug_del_${id}`)],
+    [Markup.button.callback('« Назад до багажу', 'mod_luggage')]
+  ]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action(/^lug_toggle_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Оновлено!');
+  const id = parseInt(ctx.match[1]);
+  const i = await prisma.tripItem.findUnique({ where: { id } });
+  await prisma.tripItem.update({ where: { id }, data: { isPacked: !i.isPacked } });
+  await renderLuggage(ctx);
+});
+
+bot.action(/^lug_del_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Видалено!');
+  await prisma.tripItem.delete({ where: { id: parseInt(ctx.match[1]) } });
   await renderLuggage(ctx);
 });
 
 async function renderSkincare(ctx) {
-  const routines = await prisma.skincareRoutine.findMany();
+  const userId = ctx.from.id;
+  const routines = await prisma.skincareRoutine.findMany({ where: { userId: BigInt(userId) } });
   let text = "✨ *Б'юті-рутина та догляд:*\n\n";
-  let buttons = routines.map(r => [Markup.button.callback(`✔️ ${r.title} (${r.frequency}) 🕐 ${r.notifTimes || '—'}`, `skin_done_${r.id}`)]);
+  let buttons = routines.map(r => [Markup.button.callback(`✔️ ${r.title} (${r.frequency}) 🕐 ${r.notifTimes || '—'}`, `skin_item_${r.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати процедуру', 'skin_add'), Markup.button.callback('« Меню', 'main_menu')]);
   await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
@@ -341,18 +494,34 @@ bot.action('skin_add', async (ctx) => {
   await ctx.editMessageText('✍️ Введи процедуру (наприклад, Скраб):', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_skincare')]]));
 });
 
-bot.action(/^skin_done_(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery('Записано! ✨');
-  await prisma.skincareRoutine.update({ where: { id: parseInt(ctx.match[1]) }, data: { lastDone: new Date() } });
+bot.action(/^skin_item_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const id = parseInt(ctx.match[1]);
+  const item = await prisma.skincareRoutine.findUnique({ where: { id } });
+  if (!item) return ctx.reply('Процедуру не знайдено');
+
+  const text = `✨ *Процедура:* ${item.title}\n⏳ Частота: ${item.frequency}\n⏰ Час сповіщень: ${item.notifTimes || '—'}`;
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('🗑 Видалити процедуру', `skin_del_${id}`)],
+    [Markup.button.callback('« Назад до догляду', 'mod_skincare')]
+  ]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action(/^skin_del_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Процедуру видалено!');
+  const id = parseInt(ctx.match[1]);
+  await prisma.skincareRoutine.delete({ where: { id } });
   await renderSkincare(ctx);
 });
+
 
 // ================= 4. НАЛАШТУВАННЯ ЧАСУ СПОВІЩЕНЬ =================
 bot.action('menu_settings', async (ctx) => {
   await ctx.answerCbQuery();
   const userId = ctx.from.id;
-  const s = await prisma.userSetting.findUnique({ where: { telegramId: userId } });
-  const text = `⚙️ *Налаштування*\n\n⏰ Поточний час сповіщень: *${s.notifTime}*`;
+  const s = await prisma.userSetting.findUnique({ where: { telegramId: BigInt(userId) } });
+  const text = `⚙️ *Налаштування*\n\n⏰ Поточний час сповіщень: *${s ? s.notifTime : '09:00'}*`;
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('⏰ Змінити час сповіщень', 'set_notif_time')],
     [Markup.button.callback('« Головне меню', 'main_menu')]
@@ -365,6 +534,7 @@ bot.action('set_notif_time', async (ctx) => {
   userState[ctx.from.id] = { step: 'wait_notif_time' };
   await ctx.editMessageText('✍️ Введи новий час сповіщень у форматі `HH:MM` (наприклад, `09:30`):', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'menu_settings')]]));
 });
+
 
 // ================= FSM (ГНУЧКЕ ЗБЕРЕЖЕННЯ) =================
 bot.on('text', async (ctx) => {
@@ -499,6 +669,7 @@ bot.on('text', async (ctx) => {
     await ctx.reply('❌ Сталася помилка при збереженні.');
   }
 });
+
 
 // ================= ГЛОБАЛЬНА ФУНКЦІЯ ПЕРЕВІРКИ СПОВІЩЕНЬ =================
 async function checkAndSendNotifications() {
