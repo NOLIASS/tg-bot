@@ -9,25 +9,23 @@ generator client {
 
 model Schedule {
   id        Int    @id @default(autoincrement())
-  dayOfWeek String
-  time      String
-  subject   String
-  room      String?
+  dayOfWeek String // наприклад: "Понеділок", "Вівторок"
+  time      String // "08:30"
+  subject   String // Назва пари
+  room      String? // Аудиторія
 }
 
 model Homework {
   id          Int      @id @default(autoincrement())
-  title       String
-  description String?
-  dueDate     DateTime
+  title       String   // Предмет / завдання
+  description String?  // Деталі
+  dueDate     DateTime // Дедлайн
   isCompleted Boolean  @default(false)
 }
 
 model SkincareItem {
-  id              Int      @id @default(autoincrement())
-  name            String
-  frequencyDays   Int
-  lastUsed        DateTime @default(now())
-  targetFrequency Int
-  upgradeAfter    DateTime
+  id          Int      @id @default(autoincrement())
+  name        String   // Назва засобу (наприклад, "Азелаїнка")
+  scheduleDays String  // Дні тижня через кому (наприклад, "Понеділок,Четвер" або "Щодня")
+  timeSlot    String   // Час (наприклад, "Зранку і ввечері" або "20:00")
 }
