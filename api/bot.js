@@ -12,14 +12,16 @@ const userState = {};
 async function sendDashboard(ctx, isEdit = false) {
   try {
     const userId = ctx.from.id;
-    let userSetting = await prisma.userSetting.findUnique({ where: { telegramId: userId } });
-    if (!userSetting) {
-      userSetting = await prisma.userSetting.create({
-        data: { telegramId: userId, mode: 'full', notifTime: '09:00' }
-      });
-    }
+    
+    // Використовуємо upsert, щоб якщо налаштування вже є — гарантовано підтягнути їх 
+    // або проставити дефолтні значення, якщо вони чомусь пусті (NULL)
+    let userSetting = await prisma.userSetting.upsert({
+      where: { telegramId: userId },
+      update: {}, // нічого не змінюємо, якщо запис є
+      create: { telegramId: userId, mode: 'full', notifTime: '09:00' }
+    });
 
-    // Захист від undefined, якщо в базі запис є, але нотифікація не задана
+    // Додатковий захист на випадок, якщо в базі запис є, але поля пусті
     const notifTime = userSetting.notifTime || '09:00';
     const mode = userSetting.mode || 'full';
 
@@ -66,6 +68,8 @@ async function sendDashboard(ctx, isEdit = false) {
     await ctx.reply('⚠️ Сталася помилка при завантаженні дашборду.');
   }
 }
+
+
 // --- СТАРТ ТА ОНБОРДИНГ ---
 bot.start(async (ctx) => {
   try {
