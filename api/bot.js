@@ -17,7 +17,7 @@ bot.catch((err, ctx) => {
 async function sendDashboard(ctx, isEdit = false) {
   try {
     const userId = ctx.from.id;
-    
+
     let userSetting = await prisma.userSetting.upsert({
       where: { telegramId: BigInt(userId) },
       update: {},
@@ -189,7 +189,7 @@ bot.action(/^hw_item_(\d+)$/, async (ctx) => {
 
   const dateStr = hw.dueDate ? hw.dueDate.toISOString().split('T')[0] : 'Без дати';
   const text = `📌 *Завдання:* ${hw.title}\n📅 Дедлайн: ${dateStr}\nСтатус: ${hw.isCompleted ? '✅ Виконано' : '⏳ В процесі'}`;
-  
+
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback(hw.isCompleted ? '↩️ Повернути в роботу' : '✔️ Виконати', `hw_toggle_${id}`)],
     [Markup.button.callback('🗑 Видалити', `hw_del_${id}`)],
@@ -264,7 +264,7 @@ bot.action(/^ord_item_(\d+)$/, async (ctx) => {
   if (!o) return ctx.reply('Замовлення не знайдено');
 
   const text = `💼 *Клієнт / Проєкт:* ${o.clientName}\n🏷 Ніша: ${o.niche}\n💵 Сума: ${o.amount} $\n📌 Статус: *${o.status}*`;
-  
+
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🔄 Змінити статус', `ord_status_${id}`), Markup.button.callback('🗑 Видалити', `ord_del_${id}`)],
     [Markup.button.callback('« Назад до CRM', 'mod_work')]
@@ -278,7 +278,7 @@ bot.action(/^ord_status_(\d+)$/, async (ctx) => {
   const o = await prisma.order.findUnique({ where: { id } });
   const nextStatus = o.status === 'Новий' ? 'В роботі' : o.status === 'В роботі' ? 'Виконано' : 'Новий';
   await prisma.order.update({ where: { id }, data: { status: nextStatus } });
-  
+
   // Оновлюємо картку замовлення
   const updated = await prisma.order.findUnique({ where: { id } });
   const text = `💼 *Клієнт / Проєкт:* ${updated.clientName}\n🏷 Ніша: ${updated.niche}\n💵 Сума: ${updated.amount} $\n📌 Статус: *${updated.status}*`;
@@ -577,12 +577,12 @@ bot.on('text', async (ctx) => {
       return ctx.reply('📅 Введи дедлайн (у форматі `РРРР-ММ-ДД`, наприклад `2026-06-15`):');
     }
     if (state.step === 'hw_wait_date') {
-      await prisma.homework.create({ 
-        data: { 
-          title: state.hwTitle, 
+      await prisma.homework.create({
+        data: {
+          title: state.hwTitle,
           dueDate: new Date(text),
-          userId: BigInt(userId) 
-        } 
+          userId: BigInt(userId)
+        }
       });
       delete userState[userId];
       return ctx.reply('✅ Домашнє завдання збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
@@ -672,50 +672,73 @@ bot.on('text', async (ctx) => {
 
 
 // ================= ГЛОБАЛЬНА ФУНКЦІЯ ПЕРЕВІРКИ СПОВІЩЕНЬ =================
+// ================= ГЛОБАЛЬНА ФУНКЦІЯ ПЕРЕВІРКИ СПОВІЩЕНЬ =================
 async function checkAndSendNotifications() {
   try {
-    const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const currentTime = `${hours}:${minutes}`;
-
-    // 1. Перевірка догляду (у точний час, що вказаний у налаштуваннях процедури)
+    // 1. Перевірка догляду
     const routines = await prisma.skincareRoutine.findMany();
     for (const routine of routines) {
+      if (!routine.userId) continue;
+
+      // Отримуємо таймзону користувача з бази (за замовчуванням Europe/Warsaw)
+      const userSetting = await prisma.userSetting.findUnique({
+        where: { telegramId: routine.userId }
+      });
+      const userTz = userSetting?.timezone || 'Europe/Warsaw';
+
+      // Вираховуємо поточний час саме для цього користувача
+      const formatter = new Intl.DateTimeFormat('en-GB', {
+        timeZone: userTz,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      const currentTime = formatter.format(new Date());
+
       if (routine.notifTimes && routine.notifTimes.includes(currentTime)) {
-        if (routine.userId) {
-          await bot.telegram.sendMessage(
-            Number(routine.userId),
-            `✨ *Час догляду:* Настав час для процедури — *${routine.title}*!`,
-            { parse_mode: 'Markdown' }
-          ).catch(() => {});
-        }
+        await bot.telegram.sendMessage(
+          Number(routine.userId),
+          `✨ *Час догляду:* Настав час для процедури — *${routine.title}*!`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => { });
       }
     }
 
-    // 2. Перевірка ДЗ на завтра (надсилається щодня о 09:00 ранку)
-    if (currentTime === '09:00') {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    // 2. Перевірка ДЗ на завтра (о 09:00 ранку за часом користувача)
+    const settingsList = await prisma.userSetting.findMany();
+    for (const setting of settingsList) {
+      const userTz = setting.timezone || 'Europe/Warsaw';
 
-      const homeworkDueTomorrow = await prisma.homework.findMany({
-        where: {
-          isCompleted: false,
-          dueDate: {
-            gte: new Date(tomorrowStr + 'T00:00:00Z'),
-            lte: new Date(tomorrowStr + 'T23:59:59Z')
-          }
-        }
+      const formatter = new Intl.DateTimeFormat('en-GB', {
+        timeZone: userTz,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
       });
+      const currentTime = formatter.format(new Date());
 
-      for (const hw of homeworkDueTomorrow) {
-        if (hw.userId) {
+      if (currentTime === '09:00') {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+        const homeworkDueTomorrow = await prisma.homework.findMany({
+          where: {
+            userId: setting.telegramId,
+            isCompleted: false,
+            dueDate: {
+              gte: new Date(tomorrowStr + 'T00:00:00Z'),
+              lte: new Date(tomorrowStr + 'T23:59:59Z')
+            }
+          }
+        });
+
+        for (const hw of homeworkDueTomorrow) {
           await bot.telegram.sendMessage(
-            Number(hw.userId),
+            Number(setting.telegramId),
             `⚠️ *Нагадування:* Завтра дедлайн за домашнім завданням: *${hw.title}*!`,
             { parse_mode: 'Markdown' }
-          ).catch(() => {});
+          ).catch(() => { });
         }
       }
     }

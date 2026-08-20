@@ -13,6 +13,7 @@ model UserSettings {
   morningTime   String  @default("08:00")
   eveningTime   String  @default("20:00")
   notifications Boolean @default(true)
+  timezone    String   @default("Europe/Warsaw")
 }
 
 model Schedule {
