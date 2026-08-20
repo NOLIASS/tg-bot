@@ -359,7 +359,7 @@ bot.action(/^lug_tgl_(\d+)$/, async (ctx) => {
 async function renderSkincare(ctx) {
   const routines = await prisma.skincareRoutine.findMany();
   let text = "✨ *Б'юті-рутина та догляд:*\n\n";
-  let buttons = routines.map(r => [Markup.button.callback(`✔️ Виконати: ${r.title} (${r.frequency})`, `skin_done_${r.id}`)]);
+  let buttons = routines.map(r => [Markup.button.callback(`✔️ ${r.title} (${r.frequency}) 🕐 ${r.notifTimes || '—'}`, `skin_done_${r.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати процедуру', 'skin_add'), Markup.button.callback('« Меню', 'main_menu')]);
   await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
@@ -514,9 +514,25 @@ bot.on('text', async (ctx) => {
       return ctx.reply('⏳ Введи частоту (наприклад: *щодня*, *через день*):');
     }
     if (state.step === 'skin_wait_freq') {
-      await prisma.skincareRoutine.create({ data: { title: state.skinTitle, frequency: text } });
+      state.skinFreq = text;
+      state.step = 'skin_wait_times';
+      return ctx.reply('⏰ Введи час(и) сповіщення (можна декілька через кому, наприклад: *09:00, 21:00*):', { parse_mode: 'Markdown' });
+    }
+    if (state.step === 'skin_wait_times') {
+      const times = text
+        .split(/[,;\s]+/)
+        .map(t => t.trim())
+        .filter(t => /^([01]?\d|2[0-3]):[0-5]\d$/.test(t));
+
+      if (times.length === 0) {
+        return ctx.reply('⚠️ Не розпізнав жодного часу. Введи у форматі ГГ:ХХ через кому, наприклад: *09:00, 21:00*', { parse_mode: 'Markdown' });
+      }
+
+      await prisma.skincareRoutine.create({
+        data: { title: state.skinTitle, frequency: state.skinFreq, notifTimes: times.join(',') }
+      });
       delete userState[userId];
-      return ctx.reply('✨ Процедуру збережено!', Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
+      return ctx.reply(`✨ Процедуру збережено! Сповіщення: ${times.join(', ')}`, Markup.inlineKeyboard([[Markup.button.callback('« Меню', 'main_menu')]]));
     }
     if (state.step === 'fin_wait_title') {
       state.finTitle = text;

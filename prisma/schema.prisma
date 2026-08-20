@@ -99,10 +99,11 @@ model UserSetting {
 }
 
 model SkincareRoutine {
-  id        Int       @id @default(autoincrement())
-  title     String
-  frequency String
-  lastDone  DateTime?
+  id         Int       @id @default(autoincrement())
+  title      String
+  frequency  String
+  notifTimes String?   @default("09:00") // список часів через кому, напр. "09:00,21:00"
+  lastDone   DateTime?
 }
 
 model LeadContact {
