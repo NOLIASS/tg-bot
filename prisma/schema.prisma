@@ -7,25 +7,42 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model UserSettings {
+  id            Int      @id @default(autoincrement())
+  telegramId    BigInt   @unique
+  morningTime   String   @default("08:00") // Ранковий слот (наприклад, з 6:00 до 10:00)
+  eveningTime   String   @default("20:00") // Вечірній слот (до 00:00)
+  notifications Boolean  @default(true)
+}
+
 model Schedule {
-  id        Int    @id @default(autoincrement())
-  dayOfWeek String // наприклад: "Понеділок", "Вівторок"
-  time      String // "08:30"
-  subject   String // Назва пари
+  id        Int     @id @default(autoincrement())
+  dayOfWeek String  // Понеділок, Вівторок тощо
+  time      String  // 08:30
+  subject   String  // Назва пари
   room      String? // Аудиторія
 }
 
 model Homework {
   id          Int      @id @default(autoincrement())
-  title       String   // Предмет / завдання
+  title       String   // Назва завдання / предмет
   description String?  // Деталі
-  dueDate     DateTime // Дедлайн
+  dueDate     DateTime // Дата дедлайну
+  priority    String   @default("Звичайний") // "Важливий 🔥", "Звичайний"
+  isCompleted Boolean  @default(false)
+}
+
+model Goal {
+  id          Int      @id @default(autoincrement())
+  title       String   // Назва цілі
+  targetDate  DateTime // Дедлайн цілі (наприклад, через місяць)
+  progress    Int      @default(0) // Відсоток виконання (0-100)
   isCompleted Boolean  @default(false)
 }
 
 model SkincareItem {
-  id          Int      @id @default(autoincrement())
-  name        String   // Назва засобу (наприклад, "Азелаїнка")
-  scheduleDays String  // Дні тижня через кому (наприклад, "Понеділок,Четвер" або "Щодня")
-  timeSlot    String   // Час (наприклад, "Зранку і ввечері" або "20:00")
+  id           Int    @id @default(autoincrement())
+  name         String // Назва засобу (наприклад, "Азелаїнка")
+  scheduleDays String // "Щодня", "Понеділок, Четвер" тощо
+  timeSlot     String // "Зранку", "Ввечері", "Зранку і ввечері"
 }
