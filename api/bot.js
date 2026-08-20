@@ -6,6 +6,12 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const userState = {};
 
+// Глобальний обробник помилок Telegraf: логуємо, але не даємо помилці
+// "впасти" необробленою (саме так виникала помилка "query is too old")
+bot.catch((err, ctx) => {
+  console.error(`Telegraf error for update ${ctx.update.update_id}:`, err);
+});
+
 /**
  * Динамічний рендер головного бізнес-дашборду
  */
@@ -124,12 +130,16 @@ bot.action('mod_study', async (ctx) => {
   await ctx.editMessageText('📚 *Модуль навчання:*', { parse_mode: 'Markdown', ...keyboard });
 });
 
-bot.action('st_sched', async (ctx) => {
-  await ctx.answerCbQuery(); // Винесено на початок (рядок ~113)
+async function renderSchedule(ctx) {
   const sched = await prisma.schedule.findMany();
   let buttons = sched.map(s => [Markup.button.callback(`📖 [${s.dayOfWeek}] ${s.time} — ${s.subject}`, `sched_del_${s.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати пару', 'sched_add'), Markup.button.callback('« Назад', 'mod_study')]);
   await ctx.editMessageText('📚 *Розклад занять:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
+bot.action('st_sched', async (ctx) => {
+  await ctx.answerCbQuery();
+  await renderSchedule(ctx);
 });
 
 bot.action('sched_add', async (ctx) => {
@@ -141,15 +151,19 @@ bot.action('sched_add', async (ctx) => {
 bot.action(/^sched_del_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery('Пару видалено');
   await prisma.schedule.delete({ where: { id: parseInt(ctx.match[1]) } });
-  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.update.callback_query, data: 'st_sched' } });
+  await renderSchedule(ctx);
 });
 
-bot.action('st_hw', async (ctx) => {
-  await ctx.answerCbQuery(); // Винесено на початок (рядок ~164)
+async function renderHomework(ctx) {
   const list = await prisma.homework.findMany({ where: { isCompleted: false } });
   let buttons = list.map(h => [Markup.button.callback(`✔️ ${h.title} (${h.subject || 'Без предмету'})`, `hw_done_${h.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати ДЗ', 'hw_add'), Markup.button.callback('« Назад', 'mod_study')]);
   await ctx.editMessageText('📌 *Домашні завдання:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
+bot.action('st_hw', async (ctx) => {
+  await ctx.answerCbQuery();
+  await renderHomework(ctx);
 });
 
 bot.action('hw_add', async (ctx) => {
@@ -161,7 +175,7 @@ bot.action('hw_add', async (ctx) => {
 bot.action(/^hw_done_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery('Виконано! 🎉');
   await prisma.homework.update({ where: { id: parseInt(ctx.match[1]) }, data: { isCompleted: true } });
-  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.update.callback_query, data: 'st_hw' } });
+  await renderHomework(ctx);
 });
 
 
@@ -317,12 +331,16 @@ bot.action('fin_add', async (ctx) => {
   await ctx.editMessageText('✍️ Введи назву платежу:', Markup.inlineKeyboard([[Markup.button.callback('« Назад', 'mod_fin')]]));
 });
 
-bot.action('mod_luggage', async (ctx) => {
-  await ctx.answerCbQuery(); // Винесено на початок (рядок ~337)
+async function renderLuggage(ctx) {
   const items = await prisma.luggageItem.findMany();
   let buttons = items.map(i => [Markup.button.callback(`${i.isPacked ? '✅' : '🔲'} ${i.title}`, `lug_tgl_${i.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати річ', 'lug_add'), Markup.button.callback('« Меню', 'main_menu')]);
   await ctx.editMessageText('🧳 *Багаж у дорогу:*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
+bot.action('mod_luggage', async (ctx) => {
+  await ctx.answerCbQuery();
+  await renderLuggage(ctx);
 });
 
 bot.action('lug_add', async (ctx) => {
@@ -335,16 +353,20 @@ bot.action(/^lug_tgl_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const item = await prisma.luggageItem.findUnique({ where: { id: parseInt(ctx.match[1]) } });
   await prisma.luggageItem.update({ where: { id: item.id }, data: { isPacked: !item.isPacked } });
-  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.update.callback_query, data: 'mod_luggage' } });
+  await renderLuggage(ctx);
 });
 
-bot.action('mod_skincare', async (ctx) => {
-  await ctx.answerCbQuery();
+async function renderSkincare(ctx) {
   const routines = await prisma.skincareRoutine.findMany();
   let text = "✨ *Б'юті-рутина та догляд:*\n\n";
   let buttons = routines.map(r => [Markup.button.callback(`✔️ Виконати: ${r.title} (${r.frequency})`, `skin_done_${r.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати процедуру', 'skin_add'), Markup.button.callback('« Меню', 'main_menu')]);
   await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
+bot.action('mod_skincare', async (ctx) => {
+  await ctx.answerCbQuery();
+  await renderSkincare(ctx);
 });
 
 bot.action('skin_add', async (ctx) => {
@@ -356,7 +378,7 @@ bot.action('skin_add', async (ctx) => {
 bot.action(/^skin_done_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery('Записано! ✨');
   await prisma.skincareRoutine.update({ where: { id: parseInt(ctx.match[1]) }, data: { lastDone: new Date() } });
-  return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.update.callback_query, data: 'mod_skincare' } });
+  await renderSkincare(ctx);
 });
 
 
