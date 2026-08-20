@@ -119,7 +119,7 @@ bot.action('mod_study', async (ctx) => {
 });
 
 bot.action('st_sched', async (ctx) => {
-  await ctx.answerCbQuery();
+  await ctx.answerCbQuery(); // Винесено на початок (рядок ~113)
   const sched = await prisma.schedule.findMany();
   let buttons = sched.map(s => [Markup.button.callback(`📖 [${s.dayOfWeek}] ${s.time} — ${s.subject}`, `sched_del_${s.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати пару', 'sched_add'), Markup.button.callback('« Назад', 'mod_study')]);
@@ -139,7 +139,7 @@ bot.action(/^sched_del_(\d+)$/, async (ctx) => {
 });
 
 bot.action('st_hw', async (ctx) => {
-  await ctx.answerCbQuery();
+  await ctx.answerCbQuery(); // Винесено на початок (рядок ~164)
   const list = await prisma.homework.findMany({ where: { isCompleted: false } });
   let buttons = list.map(h => [Markup.button.callback(`✔️ ${h.title} (${h.subject || 'Без предмету'})`, `hw_done_${h.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати ДЗ', 'hw_add'), Markup.button.callback('« Назад', 'mod_study')]);
@@ -222,6 +222,8 @@ bot.action('ord_skip_phone', async (ctx) => {
 });
 
 bot.action(/^ord_toggle_(\d+)$/, async (ctx) => {
+  // Винесено на самий початок (рядок ~236), щоб гарантовано уникнути таймауту під час запиту до бази
+  await ctx.answerCbQuery().catch(() => {});
   try {
     const orderId = parseInt(ctx.match[1]);
     const order = await prisma.order.findUnique({ where: { id: orderId } });
@@ -233,14 +235,11 @@ bot.action(/^ord_toggle_(\d+)$/, async (ctx) => {
       data: { status: nextStatus } 
     });
 
-    // Відповідаємо на клік одразу, щоб уникнути таймауту
-    await ctx.answerCbQuery(`Статус: ${nextStatus}`);
-    
-    // Оновлюємо список
+    // Оновлюємо статус сповіщення та список
+    await ctx.answerCbQuery(`Статус: ${nextStatus}`).catch(() => {});
     await renderCrmList(ctx, {});
   } catch (e) {
     console.error('Помилка toggle:', e);
-    await ctx.answerCbQuery('Помилка оновлення статусу').catch(() => {});
   }
 });
 
@@ -313,7 +312,7 @@ bot.action('fin_add', async (ctx) => {
 });
 
 bot.action('mod_luggage', async (ctx) => {
-  await ctx.answerCbQuery();
+  await ctx.answerCbQuery(); // Винесено на початок (рядок ~337)
   const items = await prisma.luggageItem.findMany();
   let buttons = items.map(i => [Markup.button.callback(`${i.isPacked ? '✅' : '🔲'} ${i.title}`, `lug_tgl_${i.id}`)]);
   buttons.push([Markup.button.callback('➕ Додати річ', 'lug_add'), Markup.button.callback('« Меню', 'main_menu')]);
