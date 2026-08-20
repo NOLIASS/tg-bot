@@ -222,14 +222,27 @@ bot.action('ord_skip_phone', async (ctx) => {
 });
 
 bot.action(/^ord_toggle_(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const order = await prisma.order.findUnique({ where: { id: parseInt(ctx.match[1]) } });
-  const nextStatus = order.status === 'Новий' ? 'В роботі' : order.status === 'В роботі' ? 'Виконано' : 'Новий';
-  await prisma.order.update({ where: { id: order.id }, data: { status: nextStatus } });
-  await ctx.answerCbQuery(`Статус: ${nextStatus}`);
-  return renderCrmList(ctx, {});
-});
+  try {
+    const orderId = parseInt(ctx.match[1]);
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    
+    const nextStatus = order.status === 'Новий' ? 'В роботі' : order.status === 'В роботі' ? 'Виконано' : 'Новий';
+    
+    await prisma.order.update({ 
+      where: { id: orderId }, 
+      data: { status: nextStatus } 
+    });
 
+    // Відповідаємо на клік одразу, щоб уникнути таймауту
+    await ctx.answerCbQuery(`Статус: ${nextStatus}`);
+    
+    // Оновлюємо список
+    await renderCrmList(ctx, {});
+  } catch (e) {
+    console.error('Помилка toggle:', e);
+    await ctx.answerCbQuery('Помилка оновлення статусу').catch(() => {});
+  }
+});
 
 // ================= 3. ІНШІ МОДУЛІ (БРИФИ, ЛІДИ, ДОГЛЯД, ТОЩО) =================
 bot.action('mod_leads', async (ctx) => {
