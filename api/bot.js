@@ -19,9 +19,12 @@ async function sendDashboard(ctx, isEdit = false) {
       });
     }
 
-    const mode = userSetting.mode;
+    // Захист від undefined, якщо в базі запис є, але нотифікація не задана
+    const notifTime = userSetting.notifTime || '09:00';
+    const mode = userSetting.mode || 'full';
+
     let text = `⚡ *ПЕРСОНАЛЬНИЙ ЕКО-АСИСТЕНТ* [Режим: *${mode.toUpperCase()}*]\n`;
-    text += `⏰ *Час сповіщень:* ${userSetting.notifTime}\n\n`;
+    text += `⏰ *Час сповіщень:* ${notifTime}\n\n`;
 
     const keyboardButtons = [];
 
@@ -63,7 +66,6 @@ async function sendDashboard(ctx, isEdit = false) {
     await ctx.reply('⚠️ Сталася помилка при завантаженні дашборду.');
   }
 }
-
 // --- СТАРТ ТА ОНБОРДИНГ ---
 bot.start(async (ctx) => {
   try {
